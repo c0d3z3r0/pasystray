@@ -227,12 +227,6 @@ void menu_info_item_update(menu_info_t* mi, uint32_t index, const char* name,
         item->desc = g_strdup(desc);
     }
 
-    if (mis->settings.notify == NOTIFY_ALWAYS &&
-        pa_cvolume_equal(item->volume, vol))
-    {
-        pulseaudio_update_volume_notification(item);
-    }
-
     g_free(item->volume);
     item->volume = g_memdup(vol, sizeof(pa_cvolume));
     item->mute = mute;
@@ -266,6 +260,11 @@ void menu_info_item_update(menu_info_t* mi, uint32_t index, const char* name,
     /* if this is the default sink, update status icon acording to volume */
     if(mi->type == MENU_SINK && item == menu_info_item_get_by_name(mi, mi->default_name))
         ui_update_systray_icon(item);
+
+    if (mis->settings.notify == NOTIFY_ALWAYS)
+    {
+        pulseaudio_update_volume_notification(item);
+    }
 }
 
 void menu_info_item_add(menu_info_t* mi, uint32_t index, const char* name,
