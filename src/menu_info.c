@@ -19,6 +19,7 @@
   USA.
 ***/
 
+#include <string.h>
 #include <glib.h>
 
 #include "menu_info.h"
@@ -189,6 +190,30 @@ menu_type_t menu_info_submenu_type(menu_type_t menu_type)
     return -1;
 }
 
+char* menu_info_item_label(menu_info_item_t* mii)
+{
+    gchar* desc = mii->desc;
+
+    const size_t DESC_MAX = 80;
+    gchar desc_buf[DESC_MAX + 1];
+    if (strlen(mii->desc) > DESC_MAX)
+    {
+        g_snprintf(desc_buf, DESC_MAX+1, "%.*s...", (int)DESC_MAX-3, mii->desc);
+        desc = desc_buf;
+    }
+
+    if(!mii->volume)
+        return g_strdup(desc);
+
+    char vol_buf[PA_CVOLUME_SNPRINT_MAX];
+    gchar* label = g_strdup_printf("%s %s%s",
+        desc,
+        pa_volume_snprint(vol_buf, sizeof(vol_buf), mii->volume->values[0]),
+        mii->mute ? " [muted]" : "");
+
+    return label;
+}
+
 void menu_info_item_update(menu_info_t* mi, uint32_t index, const char* name,
         const char* desc, const pa_cvolume* vol, int mute, char* tooltip,
         const char* icon, const char* address, uint32_t target)
@@ -215,17 +240,7 @@ void menu_info_item_update(menu_info_t* mi, uint32_t index, const char* name,
     item->name = g_strdup(name);
 
     g_free(item->desc);
-    if(vol)
-    {
-        char vol_buf[PA_CVOLUME_SNPRINT_MAX];
-        item->desc = g_strdup_printf("%s %s%s", desc,
-                pa_volume_snprint(vol_buf, sizeof(vol_buf), vol->values[0]),
-                mute ? " [muted]" : "");
-    }
-    else
-    {
-        item->desc = g_strdup(desc);
-    }
+    item->desc = g_strdup(desc);
 
     /* only notify on volume / mute changes */
     int notify = 0;
@@ -242,7 +257,10 @@ void menu_info_item_update(menu_info_t* mi, uint32_t index, const char* name,
     menu_type_t submenu_type = menu_info_submenu_type(mi->type);
     menu_info_t* submenu = &mi->menu_infos->menu_info[submenu_type];
 
-    gtk_menu_item_set_label(GTK_MENU_ITEM(item->widget), item->desc);
+    gchar* label = menu_info_item_label(item);
+    gtk_menu_item_set_label(GTK_MENU_ITEM(item->widget), label);
+    g_free(label);
+
     systray_set_tooltip(GTK_WIDGET(item->widget), tooltip);
 
     switch(mi->type)
@@ -285,19 +303,7 @@ void menu_info_item_add(menu_info_t* mi, uint32_t index, const char* name,
 
     item->index = index;
     item->name = g_strdup(name);
-
-    if(vol)
-    {
-        char vol_buf[PA_CVOLUME_SNPRINT_MAX];
-        item->desc = g_strdup_printf("%s %s%s", desc,
-                pa_volume_snprint(vol_buf, sizeof(vol_buf), vol->values[0]),
-                mute ? " [muted]" : "");
-    }
-    else
-    {
-        item->desc = g_strdup(desc);
-    }
-
+    item->desc = g_strdup(desc);
     item->volume = g_memdup(vol, sizeof(pa_cvolume));
     item->target = target;
     item->mute = mute;
@@ -321,7 +327,7 @@ void menu_info_item_add(menu_info_t* mi, uint32_t index, const char* name,
     switch(mi->type)
     {
         case MENU_SERVER:
-            item->widget = systray_add_radio_item(mi, item->desc, tooltip);
+            item->widget = systray_add_radio_item(item, tooltip);
             gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item->widget),
                     (item->address == mi->default_name) ||
                     (item->address && mi->default_name &&
@@ -330,17 +336,21 @@ void menu_info_item_add(menu_info_t* mi, uint32_t index, const char* name,
         case MENU_SINK:
         case MENU_SOURCE:
             item->context = menu_info_item_context_menu(item);
-            item->widget = systray_add_radio_item(mi, item->desc, tooltip);
+            item->widget = systray_add_radio_item(item, tooltip);
             gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item->widget),
                     g_str_equal(mi->default_name, item->name));
             systray_add_item_to_all_submenus(item, submenu);
             break;
         case MENU_INPUT:
         case MENU_OUTPUT:
+        {
+            gchar* label = menu_info_item_label(item);
             item->widget = systray_menu_add_submenu(mi->menu, item->submenu,
-                    item->desc, tooltip, icon);
+                    label, tooltip, icon);
+            g_free(label);
             systray_add_all_items_to_submenu(submenu, item);
             break;
+        }
         case MENU_MODULE:
             item->context = menu_info_item_context_menu(item);
             item->widget = systray_add_menu_item(mi, item->desc, tooltip, icon);
@@ -414,7 +424,7 @@ void menu_info_subitem_add(menu_info_t* mi, uint32_t index, const char* name,
     subitem->name = g_strdup(name);
     subitem->desc = g_strdup(desc);
     subitem->menu_info = mi;
-    subitem->widget = systray_add_radio_item(mi, desc, tooltip);
+    subitem->widget = systray_add_radio_item(subitem, tooltip);
 
     gboolean active = mi->parent->target == index;
     gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(subitem->widget), active);
@@ -441,8 +451,10 @@ void menu_info_subitem_update(menu_info_t* mi, uint32_t index, const char* name,
     g_debug("[menu_info] updating subitem %s %u '%s' %s", menu_info_type_name(mi->type),
             index, desc, active ? " (active)" : "");
 
-    if(!g_str_equal(item->desc, desc))
-        gtk_menu_item_set_label(GTK_MENU_ITEM(item->widget), desc);
+    gchar* label = menu_info_item_label(item);
+    gtk_menu_item_set_label(GTK_MENU_ITEM(item->widget), label);
+    g_free(label);
+
     if(active)
         gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(item->widget), TRUE);
 }
@@ -589,7 +601,8 @@ void menu_info_item_move_all_cb(GtkWidget* item, GdkEventButton* event, void* us
 
 void menu_info_item_rename_cb(GtkWidget* item, GdkEventButton* event, void* userdata)
 {
-    menu_info_item_rename_dialog(userdata);
+    menu_info_item_t* mii = userdata;
+    menu_info_item_rename_dialog(mii);
 }
 
 void menu_info_item_rename_dialog(menu_info_item_t* mii)
@@ -597,7 +610,7 @@ void menu_info_item_rename_dialog(menu_info_item_t* mii)
     gtk_menu_popdown(GTK_MENU(mii->menu_info->menu_infos->menu));
 
     char* title = g_strdup_printf("Rename %s %s",
-            menu_info_type_name(mii->menu_info->type), mii->desc);
+            menu_info_type_name(mii->menu_info->type), mii->name);
     char* text = g_strdup_printf("%s to:", title);
 
     GtkDialog* dialog = ui_renamedialog();

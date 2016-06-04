@@ -64,7 +64,12 @@ void pulseaudio_set_default_success_cb(pa_context *c, int success, void *userdat
 {
     menu_info_item_t* mii = userdata;
 
-    if(!success)
+    if(success)
+    {
+        if(mii->menu_info->type == MENU_SINK)
+            ui_update_systray_icon(mii);
+    }
+    else
         g_warning("failed to set default to %s \"%s\"!\n",
                 menu_info_type_name(mii->menu_info->type), mii->name);
 }
@@ -247,11 +252,12 @@ void pulseaudio_set_volume_success_cb(pa_context *c, int success, void *userdata
 
 void pulseaudio_update_volume_notification(menu_info_item_t* mii)
 {
+    gchar* label = menu_info_item_label(mii);
     gchar* msg = g_strdup_printf("%s %s",
-                menu_info_type_name(mii->menu_info->type), mii->desc);
+                menu_info_type_name(mii->menu_info->type), label);
+    g_free(label);
 
     gint volume = (mii->volume->values[0]*100+PA_VOLUME_NORM/2)/PA_VOLUME_NORM;
-
     if(!mii->notify)
         mii->notify = notify(msg, NULL, mii->icon, volume);
     else
